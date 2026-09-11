@@ -20,6 +20,11 @@
 // here. Every branch below is a platform CSPRNG and nothing else; there is no
 // fallback to a PRNG, because a token from a PRNG that reports success is worse
 // than no token at all.
+//
+// Per platform: arc4random_buf on every Apple OS and on bionic (declared in
+// <stdlib.h> everywhere, cannot fail); getentropy on glibc, with /dev/urandom
+// under it; RtlGenRandom on Windows, resolved at runtime so this header adds no
+// link dependency.
 
 #include <cstddef>
 #include <cstdint>
@@ -28,15 +33,20 @@
 
 #if defined(_WIN32)
 #  include <windows.h>
+#elif defined(__APPLE__) || defined(__ANDROID__) || defined(__FreeBSD__) \
+   || defined(__OpenBSD__) || defined(__NetBSD__)
+// arc4random_buf is the platform CSPRNG on every Apple OS and on bionic, it is
+// declared in <stdlib.h> on all of them, and it cannot fail. Deliberately NOT
+// getentropy() here: Apple declares that one in <sys/random.h>, which the iOS
+// and iOS-simulator SDKs do not ship -- measured, as a fatal "file not found"
+// building this module's Bare artifact for aarch64-ios-simulator.
+#  define LOGOS_CAPABILITY_ARC4RANDOM 1
+#  include <cstdlib>
 #else
 #  include <cstdio>
-#  if defined(__APPLE__) || defined(__linux__) || defined(__ANDROID__) \
-   || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-#    define LOGOS_CAPABILITY_HAVE_GETENTROPY 1
+#  if defined(__linux__)
+#    define LOGOS_CAPABILITY_GETENTROPY 1
 #    include <unistd.h>
-#    if defined(__APPLE__)
-#      include <sys/random.h>
-#    endif
 #  endif
 #endif
 
@@ -60,8 +70,10 @@ inline void randomBytes(std::uint8_t* out, std::size_t len)
     }();
     if (!rtlGenRandom || !rtlGenRandom(out, static_cast<ULONG>(len)))
         throw std::runtime_error("capability_module: RtlGenRandom failed");
+#elif defined(LOGOS_CAPABILITY_ARC4RANDOM)
+    arc4random_buf(out, len);
 #else
-#  if defined(LOGOS_CAPABILITY_HAVE_GETENTROPY)
+#  if defined(LOGOS_CAPABILITY_GETENTROPY)
     // getentropy() takes at most 256 bytes per call; a UUID needs 16, so the
     // loop is for a caller that asks for more rather than for this one.
     std::size_t done = 0;
@@ -74,7 +86,8 @@ inline void randomBytes(std::uint8_t* out, std::size_t len)
     if (done == len)
         return;
 #  endif
-    // The portable floor, and the only path on a platform without getentropy.
+    // The portable floor, and the only path on a platform with neither of the
+    // above.
     std::FILE* f = std::fopen("/dev/urandom", "rb");
     if (!f)
         throw std::runtime_error("capability_module: cannot open /dev/urandom");
