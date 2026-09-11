@@ -10,4 +10,6 @@ logos_test(
     TEST_SOURCES
         main.cpp
         test_capability_module.cpp
+        # The token generator this module owns since boost left (src/uuid.h).
+        test_uuid.cpp
 )
