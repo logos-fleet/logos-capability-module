@@ -44,7 +44,9 @@ src/
 tests/
 ├── CMakeLists.txt
 ├── main.cpp
-└── test_capability_module.cpp
+├── test_capability_module.cpp
+├── test_consent.cpp                 # the 4.7.3 per-module consent gate
+└── capability_module_events_test.cpp # Qt-free bodies for the two consent events
 docs/docs.md                         # module specification
 doctests/                            # end-to-end composition doc-test
 metadata.json                        # interface: universal; codegen.{impl_class,impl_header};

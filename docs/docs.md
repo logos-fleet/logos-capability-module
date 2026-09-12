@@ -46,10 +46,54 @@ API — there is no dispatch marker; the generator derives the contract from the
 
 | Method | Purpose |
 |--------|---------|
-| `requestModule(fromModuleName, moduleName) → std::string` | Generates a fresh token for the **RPC caller** (`logos::currentCaller`) to call `moduleName`, informs the target, and returns it. `fromModuleName` is leftover ABI and is not used for identity. Returns an **empty string** on any refusal — unnamed caller, unknown target, policy denial, or an unreachable target. |
+| `requestModule(fromModuleName, moduleName) → std::string` | Generates a fresh token for the **RPC caller** (`logos::currentCaller`) to call `moduleName`, informs the target, and returns it. `fromModuleName` is leftover ABI and is not used for identity. Returns an **empty string** on any refusal — unnamed caller, unknown target, policy denial, missing per-module consent, or an unreachable target. |
 | `registerRestriction(authToken, targetModule, allowedCallers) → bool` | Records an allowed-caller list for `targetModule`. Refused unless `authToken` is the trusted core/capability channel. |
+| `setModuleOrigin(authToken, moduleName, origin) → LogosMap` | Declares where a module came from: `"bundled"` (the app image shipped it) or `"downloaded"` (the user installed it at runtime). Trusted channel only; not persisted — the host re-declares every boot. |
+| `listModuleOrigins() → LogosList` | `[{ module, origin }]`, name-ordered. |
+| `consentStatus(callerModule, targetModule) → LogosMap` | `{ caller, target, callerOrigin, targetOrigin, state, reason }` for one **ordered** pair. `state` is `not-required` / `granted` / `denied` / `pending` / `unknown`. |
+| `decideConsent(authToken, callerModule, targetModule, granted) → LogosMap` | Records the user's answer and persists it. Trusted channel only. |
+| `forgetConsent(authToken, callerModule, targetModule) → LogosMap` | Returns a pair to undecided so the next call prompts again. Trusted channel only. |
+| `listConsents() → LogosList` | `[{ caller, target, granted }]` for every remembered decision. |
 
-Typed events would be declared under a `logos_events:` section. The module currently emits none.
+Typed events (`logos_events:`):
+
+| Event | Payload | When |
+|-------|---------|------|
+| `consentRequired` | `{ caller, target, callerOrigin, targetOrigin }` | a call needs a decision nobody has made. **Once per undecided pair**, not once per attempt |
+| `consentDecided` | `{ caller, target, granted }` | on every `decideConsent` |
+
+### 3.2 Per-module consent (App Store guideline 4.7.3)
+
+A Store shell installs modules at runtime, and the user is entitled to be asked before one of
+them reaches another module's data. The gate lives here because `requestModule` is the one
+place **every** cross-module authority is minted — a gate anywhere else is a gate a module
+can route around.
+
+It is the **last** of the three gates inside `requestModule`, after the known-target check and
+the access policy. A prompt is a user-visible act, so it is only ever spent on a request that
+would otherwise have succeeded; an unloaded target and a deployment restriction are not the
+user's to answer.
+
+Rules:
+
+- The gate fires only when **one of the two parties is Downloaded**. A module nobody declared
+  counts as Bundled, so a core that declares no origins — every desktop core today — sees no
+  behaviour change at all.
+- A decision is remembered per **ordered** pair. Granting a Downloaded module outbound access
+  to `chat_module` does not grant `chat_module` a way back into it.
+- Decisions **persist**, in `<instancePersistencePath>/consents.json` (write-then-rename,
+  `{"version":1,"consents":[{caller,target,granted}]}`). Restarting is not a way to re-ask and
+  not a way to escape a denial. An unreadable file restores nothing and prompts again rather
+  than refusing to load.
+- Pending pairs do **not** persist: a pair the user never answered must prompt again next
+  launch rather than come back as a silent refusal.
+- capability_module never waits for a dialog — it is on the dispatch path of every
+  cross-module call. The call fails now, the Shell prompts, and the caller's retry carries the
+  decision.
+- `requestModule` can only answer with a token or with nothing, so a refusal's **reason** is
+  read from `consentStatus(...).reason`. That string is what a Shell shows the user.
+- Consent is the *user's* answer and `registerRestriction` is the *deployment's*. Neither
+  overrides the other; the stricter one wins.
 
 ## 4. Implementation
 
