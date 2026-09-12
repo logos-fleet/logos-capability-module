@@ -74,11 +74,13 @@ inline void randomBytes(std::uint8_t* out, std::size_t len)
     arc4random_buf(out, len);
 #else
 #  if defined(LOGOS_CAPABILITY_GETENTROPY)
-    // getentropy() takes at most 256 bytes per call; a UUID needs 16, so the
-    // loop is for a caller that asks for more rather than for this one.
+    // getentropy() takes at most this many bytes per call; a UUID needs 16, so
+    // the loop is for a caller that asks for more rather than for this one.
+    constexpr std::size_t kGetentropyMax = 256;
     std::size_t done = 0;
     while (done < len) {
-        const std::size_t chunk = (len - done) > 256 ? 256 : (len - done);
+        const std::size_t remaining = len - done;
+        const std::size_t chunk = remaining > kGetentropyMax ? kGetentropyMax : remaining;
         if (getentropy(out + done, chunk) != 0)
             break;
         done += chunk;
@@ -109,7 +111,7 @@ inline std::string uuidV4()
     b[6] = static_cast<std::uint8_t>((b[6] & 0x0F) | 0x40);   // version 4
     b[8] = static_cast<std::uint8_t>((b[8] & 0x3F) | 0x80);   // variant 1 (10xx)
 
-    static const char* hex = "0123456789abcdef";
+    constexpr char hex[] = "0123456789abcdef";
     std::string s;
     s.reserve(36);
     for (int i = 0; i < 16; ++i) {
