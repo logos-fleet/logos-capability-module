@@ -1,8 +1,6 @@
 #include "capability_module_impl.h"
 
-#include <boost/uuid/uuid.hpp>
-#include <boost/uuid/uuid_generators.hpp>
-#include <boost/uuid/uuid_io.hpp>
+#include "uuid.h"
 
 #include <logos_caller.h>
 #include <logos_host_services.h>
@@ -13,15 +11,15 @@
 namespace {
 
 // The minted value IS the auth token, so this is the one place entropy matters.
-// Deliberately the SAME generator the host uses to mint each module's token
-// (logos-liblogos module_manager.cpp), rather than a hand-rolled
-// std::random_device formatter: boost seeds from the platform CSPRNG
-// (/dev/urandom, BCryptGenRandom), whereas std::random_device is permitted to
-// be DETERMINISTIC and historically was on MinGW — which is a live target here.
+// src/uuid.h draws from the platform CSPRNG and never from std::random_device,
+// which the standard permits to be DETERMINISTIC and which historically was on
+// MinGW — a live target here. It used to be boost::uuids::random_generator,
+// which is the same guarantee; boost had to go because it was never a declared
+// dependency of this module (it arrived through the Qt plugin backend's
+// propagated inputs) and a BARE build links no Qt.
 std::string mintToken()
 {
-    static boost::uuids::random_generator gen;
-    return boost::uuids::to_string(gen());
+    return logos_capability::uuidV4();
 }
 
 // RAII for the per-target client. lp_client_destroy is safe from any thread and
